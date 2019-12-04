@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>倒播录音</title>
+		<script src="js/rotate.js"></script>
+		<script src="js/recorderApi.js"></script>
+		<script src="/recorder.mp3.min.js"></script>
+		<script src="src/recorder-core.js"></script>
+		<!--已包含recorder-core和mp3格式支持-->
+		<style>
+			.flipx {
+				-moz-transform: scaleX(-1);
+				-webkit-transform: scaleX(-1);
+				-o-transform: scaleX(-1);
+				transform: scaleX(-1);
+				/*IE*/
+				filter: FlipH;
+			}
+
+			/*垂直翻转*/
+			.flipy {
+				-moz-transform: scaleY(-1);
+				-webkit-transform: scaleY(-1);
+				-o-transform: scaleY(-1);
+				transform: scaleY(-1);
+				/*IE*/
+				filter: FlipV;
+			}
+		</style>
+	</head>
+	<body style="background: url(./img/background.png); background-repeat:no-repeat ;background-size:100% 100%; background-attachment: fixed;">
+
+		<img id="left" src="./img/leftHand.png" width="25%" height="40%" style="position: absolute;left: 0; top:25%;">
+		<img id="right" src="./img/rightHand.png" width="25%" height="40%" style="position: absolute;right: 0%; top:25%;">
+		<img id="micro" src="./img/micro.png" width="20%" height="80%" style="position: absolute;right: 40%; top:10%;"
+		 onclick="imgClick()">
+
+		<img id="record" src="./img/record.png" width="10%" height="25%" style="position: absolute;right: 21%; top:65%;cursor: hand;"
+		 onclick="record_click()">
+		<img id="play" src="./img/play.png" width="10%" height="25%" style="position: absolute;right: 1%; top:65%;cursor: hand;"
+		 onclick="imgClick()">
+		<img id="reverse" src="./img/reverse.png" width="10%" height="25%" style="position: absolute;right: 11%; top:65%;cursor: hand;"
+		 onclick="upload_click()">
+	</body>
+	<script>
+		var rec;
+
+		function reclog(s, e) {
+			var now = new Date();
+			var t = ("0" + now.getHours()).substr(-2) +
+				":" + ("0" + now.getMinutes()).substr(-2) +
+				":" + ("0" + now.getSeconds()).substr(-2);
+			console.log('<div style="color:' + (e ? "red" : "") + '">[' + t + ']' + s + '</div>');
+		};
+
+		function recopen() {
+			var type = "mp3";
+			var bit = 16;
+			var sample = 16000;
+
+			var wave, waveSet = true;
+
+			var disableEnvInFixSet = false;
+			if (disableEnvInFixSet) {
+				reclog("已禁用设备卡顿时音频输入丢失补偿，可以通过别的程序大量占用CPU来模拟设备卡顿，然后录音听听未补偿时的播放效果，然后再试试不禁用的效果");
+			};
+
+			var realTimeSendSet = false;
+			var realTimeSendTime = 996;
+
+			rec = Recorder({
+				type: type,
+				bitRate: bit,
+				sampleRate: sample,
+				disableEnvInFix: disableEnvInFixSet,
+				onProcess: function(buffers, level, time, sampleRate) {
+					//$(".recpowerx").css("width",level+"%");
+					//$(".recpowert").html(time+"/"+level);
+					console.log("vol: " + level);
+					waveSet && wave.input(buffers[buffers.length - 1], level, sampleRate);
+
+					if (realTimeSendSet && window.realTimeSendTry) {
+						realTimeSendTry(rec.set, realTimeSendTime, buffers, sampleRate);
+					};
+				}
+			});
+
+			dialogInt = setTimeout(function() { //定时8秒后打开弹窗，用于监测浏览器没有发起权限请求的情况，在open前放置定时器利于收到了回调能及时取消（不管open是同步还是异步回调的）
+				showDialog();
+			}, 8000);
+
+			rec.open(function() {
+				dialogCancel();
+				reclog("<span style='color:#0b1'>已打开:" + type + " " + sample + "hz " + bit + "kbps</span>");
+
+				wave = Recorder.WaveView({
+					elem: ".recwave"
+				});
+			}, function(e, isUserNotAllow) {
+				dialogCancel();
+				reclog((isUserNotAllow ? "UserNotAllow，" : "") + "打开失败：" + e);
+			});
+
+			window.waitDialogClick = function() {
+				dialogCancel();
+				reclog("打开失败：权限请求被忽略，<span style='color:#f00'>用户主动点击的弹窗</span>");
+			};
+		};
+
+		//我们可以选择性的弹一个对话框：为了防止移动端浏览器存在第三种情况：用户忽略，并且（或者国产系统UC系）浏览器没有任何回调
+		var showDialog = function() {
+			if (!/mobile/i.test(navigator.userAgent)) {
+				return; //只在移动端开启没有权限请求的检测
+			};
+			dialogCancel();
+			$("body").append('' +
+				'<div class="waitDialog" style="z-index:99999;width:100%;height:100%;top:0;left:0;position:fixed;background:rgba(0,0,0,0.3);">' +
+				'<div style="display:flex;height:100%;align-items:center;">' +
+				'<div style="flex:1;"></div>' +
+				'<div style="width:240px;background:#fff;padding:15px 20px;border-radius: 10px;">' +
+				'<div style="padding-bottom:10px;">录音功能需要麦克风权限，请允许；如果未看到任何请求，请点击忽略~</div>' +
+				'<div style="text-align:center;"><a onclick="waitDialogClick()" style="color:#0B1">忽略</a></div>' +
+				'</div>' +
+				'<div style="flex:1;"></div>' +
+				'</div>' +
+				'</div>');
+		};
+		var dialogInt;
+		var dialogCancel = function() {
+			clearTimeout(dialogInt);
+			$(".waitDialog").remove();
+		};
+		//弹框End
+
+
+		function recclose() {
+			if (rec) {
+				rec.close(function() {
+					reclog("已关闭");
+				});
+			} else {
+				reclog("未打开录音", 1);
+			};
+		};
+
+		function recstart(call) {
+			call || (call = function(msg) {
+				msg && reclog(msg, 1);
+			});
+			if (rec) {
+				window.realTimeSendTryReset && realTimeSendTryReset();
+
+				rec.start();
+				var set = rec.set;
+				reclog("录制中：" + set.type + " " + set.sampleRate + "hz " + set.bitRate + "kbps");
+				call();
+			} else {
+				call("未打开录音");
+			};
+		};
+
+		function recpause() {
+			if (rec) {
+				rec.pause();
+				reclog("已暂停");
+			};
+		};
+
+		function recresume() {
+			if (rec) {
+				rec.resume();
+				reclog("继续录音中...");
+			};
+		};
+		var recblob = {};
+
+		function recstop(call) {
+			recstopFn(call, true, function() {
+				setTimeout(function() {
+					window.realTimeSendTryStop && realTimeSendTryStop(rec.set);
+				});
+			});
+		};
+
+		function recstopFn(call, isClick, endCall, rec) {
+			call || (call = function(msg) {
+				msg && reclog(msg, 1);
+			});
+			rec = rec || window.rec;
+			if (rec) {
+				if (isClick) {
+					reclog("正在编码" + rec.set.type + "...");
+				};
+				var t1 = Date.now();
+				rec.stop(function(blob, time) {
+					var tag = endCall("", blob, time);
+					if (tag == -1) {
+						return;
+					};
+
+					var id = RandomKey(16);
+					recblob[id] = {
+						blob: blob,
+						set: $.extend({}, rec.set),
+						time: time
+					};
+					reclog((tag || "已录制") + ":" + intp(rec.set.bitRate, 3) + "kbps " + intp(rec.set.sampleRate, 5) + "hz 花" + intp(
+							Date.now() - t1, 4) + "ms编码" + intp(blob.size, 6) + "b [" + rec.set.type + "]" + intp(time, 6) +
+						'ms <button onclick="recdown(\'' + id + '\')">下载</button> <button onclick="recplay(\'' + id +
+						'\')">播放</button> <span class="p' + id + '"></span> <span class="d' + id + '"></span>');
+
+					call(null, {
+						data: blob,
+						duration: time
+					});
+				}, function(s) {
+					endCall(s);
+					call("失败：" + s);
+				});
+			} else {
+				call("未打开录音");
+			};
+		};
+		var intp = function(s, len) {
+			s = s == null ? "-" : s + "";
+			if (s.length >= len) return s;
+			return ("_______" + s).substr(-len);
+		};
+
+		function recstop2() {
+			if (!rec || !rec.buffers) {
+				reclog("需先录个音");
+				return;
+			};
+
+			var type = 'mp3';
+			var sample = 16;
+			var bits = /(\d+)\s+to\s+(\d+)\s+step\s+(\d+)\s*/i.exec(16000);
+			if (!bits) {
+				reclog("码率列表有误，需要? to ? step ?结构");
+				return;
+			};
+			reclog("开始批量编码，请勿进行其他操作~");
+
+			rec.set.type = type;
+			rec.set.sampleRate = sample;
+
+			var list = [];
+			for (var i = +bits[1]; i < +bits[2] + 1; i += +bits[3]) {
+				list.push(i);
+			};
+			if (rec.set.type == "wav") {
+				list = [8, 16];
+			};
+
+
+			var i = -1;
+			var bak = rec.set.bitRate;
+			var run = function() {
+				i++;
+				if (i >= list.length) {
+					rec.set.bitRate = bak;
+					reclog("批量编码完成");
+					return;
+				};
+				rec.set.bitRate = list[i];
+				rec.isMock = 1;
+				recstopFn(null, 0, function() {
+					setTimeout(run);
+				});
+			};
+			run();
+		};
+
+		function recplay(key) {
+			var audio = $(".recPlay")[0];
+			audio.controls = true;
+			if (!(audio.ended || audio.paused)) {
+				audio.pause();
+			};
+
+			var o = recblob[key];
+			if (o) {
+				o.play = (o.play || 0) + 1;
+				var logmsg = function(msg) {
+					$(".p" + key).html('<span style="color:green">' + o.play + '</span> ' + new Date().toLocaleTimeString() + " " +
+						msg);
+				};
+				logmsg("");
+				audio.onerror = function(e) {
+					logmsg('<span style="color:red">播放失败[' + audio.error.code + ']' + audio.error.message + '</span>');
+				};
+
+				if (o.play2Name) {
+					audio.src = "assets/audio/" + o.play2Name;
+					audio.play();
+					return;
+				};
+				var end = function(blob) {
+					audio.src = (window.URL || webkitURL).createObjectURL(blob);
+					audio.play();
+				};
+				var wav = Recorder[o.set.type + "2wav"];
+				if (wav) {
+					logmsg("正在转码成wav...");
+					wav(o.blob, function(blob) {
+						end(blob);
+						logmsg("已转码成wav播放");
+					}, function(msg) {
+						logmsg("转码成wav失败：" + msg);
+					});
+				} else {
+					end(o.blob);
+				};
+			};
+		};
+
+		function recplay2(elem, name) {
+			elem = $(elem);
+			var key = "recplay2" + elem.html();
+			recblob[key] || (recblob[key] = {
+				play2Name: name
+			});
+			if (!$(".p" + key).length) {
+				elem.before('<br>');
+				elem.after('<span class="p' + key + '"></span><br>');
+			};
+
+			recplay(key);
+		};
+
+		function recdown(key) {
+			var o = recblob[key];
+			if (o) {
+				var cls = RandomKey(16);
+				var name = "rec-" + o.time + "ms-" + o.set.bitRate + "kbps-" + o.set.sampleRate + "hz." + o.set.type;
+
+				o.down = (o.down || 0) + 1;
+				$(".d" + key).html('<span style="color:red">' + o.down + '</span> <span class="' + cls +
+					'"> 没弹下载？试一下链接或复制文本<button onclick="recdown64(\'' + key + '\',\'' + cls + '\')">生成Base64文本</button></span>');
+
+				var downA = document.createElement("A");
+				downA.innerHTML = "下载 " + name;
+				downA.href = (window.URL || webkitURL).createObjectURL(o.blob);
+				downA.download = name;
+				$("." + cls).prepend(downA);
+				downA.click();
+			};
+		};
+
+		function recdown64(key, cls) {
+			var o = recblob[key];
+
+			var reader = new FileReader();
+			reader.onloadend = function() {
+				var id = RandomKey(16);
+				$("." + cls).append('<textarea class="' + id + '"></textarea>');
+				$("." + id).val(reader.result);
+			};
+			reader.readAsDataURL(o.blob);
+		};
+
+		//$(".recinfo").html(BuildHtml($(".tp_recinfo").html()));
+
+		if (window.isSecureContext === false) {
+			reclog(
+				"当前网页不是安全环境（HTTPS），将无法获取录音权限，<a href='https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#Privacy_and_security'>MDN Privacy and security</a>",
+				1);
+		} else if (window.isSecureContext) {
+			reclog(
+				"<span style='color:#0b1'>当前网页处在安全环境中</span>(<a href='https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#Privacy_and_security'>https、file:///等</a>)"
+			);
+		};
+
+		reclog("点击打开录音开始哦，此浏览器<span style='color:" + (Recorder.Support() ? "green'>" : "red'>不") + "支持录音</span>");
+		reclog("WaveView Extensions已启用");
+
+
+
+		if (window.top != window) {
+			var isSelf = false;
+			try {
+				window.top.aa = 123;
+				isSelf = true;
+			} catch (e) {};
+
+			reclog("<span style='color:#f60'>当前页面处在在iframe中，但故意未进行任何处理，" + (isSelf ? "当前是同域" : "并且已发生跨域，未设置相应策略权限永远是拒绝的") +
+				"</span>");
+		};
+
+
+	</script>
+</html>
